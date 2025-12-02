@@ -11,7 +11,7 @@ ORANGE = "#FF6B35"    # Residents
 GREEN = "#2ECC71"     # Commuters
 BLUE = "#3498DB"      # Faculty
 
-FILE = "fairfield_parking.xlsx"
+FILE = "fairfield_parking.csv"
 
 # Category-level capacities
 CAPACITY = {
@@ -39,7 +39,7 @@ LOTS = {
     ],
 }
 
-# Destination → recommended lot per category (simple suggestions)
+# Destination → recommended lot per category
 DEST_RECOMMEND = {
     "Barone Campus Center (BCC)": {
         "Orange (Residents)": "H-2",
@@ -83,22 +83,19 @@ DEST_RECOMMEND = {
 # ------------------------
 
 def load_data():
-    """Load parking history from Excel, or create empty DataFrame."""
-    if os.path.exists(FILE) and os.path.getsize(FILE) > 100:
-        df = pd.read_excel(FILE)
+    """Load parking history from CSV, or create empty DataFrame."""
+    if os.path.exists(FILE) and os.path.getsize(FILE) > 0:
+        df = pd.read_csv(FILE, parse_dates=["Entry", "Exit"])
     else:
         df = pd.DataFrame(columns=["Plate", "Lot", "Entry", "Exit"])
-    # make sure columns exist
     for col in ["Plate", "Lot", "Entry", "Exit"]:
         if col not in df.columns:
             df[col] = None
-    df["Entry"] = pd.to_datetime(df["Entry"], errors="coerce")
-    df["Exit"] = pd.to_datetime(df["Exit"], errors="coerce")
     return df
 
 
 def save_data(df: pd.DataFrame):
-    df.to_excel(FILE, index=False)
+    df.to_csv(FILE, index=False)
 
 
 def active_in_group(df: pd.DataFrame, group: str) -> pd.DataFrame:
@@ -304,7 +301,9 @@ def render_group_page(group_name: str, color: str, title_text: str, description:
     cur = active_in_group(df, group_name)
     if not cur.empty:
         cur = cur.copy()
-        cur["Duration"] = (datetime.now() - cur["Entry"]).astype(str).str.split(".").str[0]
+        cur["Duration"] = (
+            datetime.now() - pd.to_datetime(cur["Entry"])
+        ).astype(str).str.split(".").str[0]
         used = len(cur)
 
         st.metric(
@@ -360,7 +359,8 @@ elif page == "Alerts & Recommendations":
     # Over-parked cars
     st.markdown("### ⏰ Cars parked longer than X hours")
 
-    if df[df["Exit"].isna()].empty:
+    active_all = df[df["Exit"].isna()].copy()
+    if active_all.empty:
         st.info("No cars are currently parked on campus.")
     else:
         max_hours = st.slider(
@@ -370,9 +370,10 @@ elif page == "Alerts & Recommendations":
             value=4,
         )
         now = datetime.now()
-        active = df[df["Exit"].isna()].copy()
-        active["Hours parked"] = (now - active["Entry"]).dt.total_seconds() / 3600
-        over = active[active["Hours parked"] > max_hours]
+        active_all["Hours parked"] = (
+            now - pd.to_datetime(active_all["Entry"])
+        ).dt.total_seconds() / 3600
+        over = active_all[active_all["Hours parked"] > max_hours]
 
         if over.empty:
             st.success(f"No cars have been parked longer than {max_hours} hours.")
